@@ -1,0 +1,89 @@
+
+
+
+  /* Custom scrollbar for WebKit browsers */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px; /* Vertical scrollbar width */
+    height: 5px; /* Horizontal scrollbar height */
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 5px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: transparent; /* Purple color matching your theme */
+    border-radius: 5px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: transparent; /* Darker purple on hover */
+  }
+
+  /* For Firefox */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+
+/* 3D Cube Loader Styles */
+.loader {
+  perspective: 800px;
+}
+
+.cube {
+  width: 40px;
+  height: 40px;
+  position: relative;
+  transform-style: preserve-3d;
+  animation: spin 3s linear infinite;
+}
+
+.face {
+  width: 40px;
+  height: 40px;
+  position: absolute;
+  opacity: 0.8;
+}
+
+.front {
+  transform: translateZ(20px);
+  background-color: #3498db;
+}
+
+.back {
+  transform: translateZ(-20px);
+  background-color: #e74c3c;
+}
+
+.left {
+  transform: rotateY(90deg) translateZ(20px);
+  background-color: #2ecc71;
+}
+
+.right {
+  transform: rotateY(-90deg) translateZ(20px);
+  background-color: #f39c12;
+}
+
+.top {
+  transform: rotateX(90deg) translateZ(20px);
+  background-color: #9b59b6;
+}
+
+.bottom {
+  transform: rotateX(-90deg) translateZ(20px);
+  background-color: #e67e22;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotateX(0) rotateY(0) rotateZ(0);
+  }
+
+  100% {
+    transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg);
+  }
+}

@@ -3,10 +3,12 @@ import Booking from "../models/Booking.js";
 import SpamList from "../models/SpamList.js";
 import ShopDetails from "../models/ShopDetails.js";
 import User from "../models/User.js";
-import ErrorHandler from "../utils/errorhandler.js";
+import ErrorHandler, { SlotConflictError, TransactionError } from "../utils/errorhandler.js";
 import { isSlotAvailable } from "../utils/timeSlotManager.js";
 import {  isValidBookingDate, getBookingTimeRange } from "../utils/dateUtils.js";
 import { getPaginationOptions, formatPaginationResponse } from "../utils/dbUtils.js";
+import { startTransaction } from "../utils/transactionHelper.js";
+import { checkSlotAvailability } from "../utils/bookingLockService.js";
 import mongoose from 'mongoose';
 
 
@@ -33,7 +35,6 @@ export const createBooking = catchAsyncErrors(async (req, res, next) => {
     const userRole = req.user.role;
     const userId = req.user.id;
     
-
     if (!serviceProviders || serviceProviders.length === 0 || !date) {
         return next(new ErrorHandler("Service providers and date are required", 400));
     }
@@ -45,7 +46,7 @@ export const createBooking = catchAsyncErrors(async (req, res, next) => {
         return next(new ErrorHandler("Booking allowed only for today and next 2 days", 400));
     }
 
-    // Determine customer details based on user role
+    // Determine customer details based on user role (OUTSIDE transaction - these are read-only lookups)
     let customerDetails;
     
     if (userRole === 'customer') {
@@ -86,7 +87,8 @@ export const createBooking = catchAsyncErrors(async (req, res, next) => {
         };
     }
 
-    // Validate each service provider
+    // Pre-validate each service provider's shop (OUTSIDE transaction - these are read-only lookups)
+    const shopDetailsMap = new Map();
     for (const provider of serviceProviders) {
         const { barber_id, services, start_time, service_time } = provider;
 
@@ -108,31 +110,86 @@ export const createBooking = catchAsyncErrors(async (req, res, next) => {
             }
         }
 
-        // Check if the slot is available for this barber
-        const isAvailable = await isSlotAvailable(barber_id, shopDetails, bookingDate, start_time, service_time);
-        if (!isAvailable.available) {
-            return next(new ErrorHandler(`Slot not available for barber: ${isAvailable.reason}`, 400));
-        }
+        shopDetailsMap.set(barber_id.toString(), shopDetails);
     }
 
-    // Create booking with serviceProviders array
-    const booking = await Booking.create({
-        customerdetails: customerDetails,
-        serviceProviders: serviceProviders,
-        date: bookingDate,
-        status: userRole === "customer" ? 'booked' : "completed",
-        isOffline: userRole !== 'customer'
-    });
+    // ========== START TRANSACTION ==========
+    // All critical operations happen inside the transaction
+    try {
+        const booking = await startTransaction(async (session) => {
+            // Within transaction: Atomic slot checking and booking creation
+            
+            // Verify slot availability for each service provider (ATOMIC)
+            for (const provider of serviceProviders) {
+                const { barber_id, start_time, service_time } = provider;
+                const shopDetails = shopDetailsMap.get(barber_id.toString());
 
-    // Populate barber details
-    const populatedBooking = await Booking.findById(booking._id)
-        .populate('serviceProviders.barber_id', 'name email phone profileUrl');
-    
-    res.status(201).json({
-        success: true,
-        message: "Booking created successfully bookingId-" + customerDetails?.customer_name,
-        data: populatedBooking
-    });
+                // This uses atomic operations to check + reserve slot
+                const slotCheck = await checkSlotAvailability(
+                    barber_id,
+                    shopDetails,
+                    bookingDate,
+                    start_time,
+                    service_time,
+                    session  // Pass session for transaction
+                );
+
+                if (!slotCheck.available) {
+                    throw new SlotConflictError(
+                        `Slot not available: ${slotCheck.reason}`,
+                        409
+                    );
+                }
+            }
+
+            // All slots verified and available - Create booking within transaction
+            const createOptions = {};
+            if (session) createOptions.session = session;  // Only add session if it exists
+            
+            const newBooking = await Booking.create(
+                [
+                    {
+                        customerdetails: customerDetails,
+                        serviceProviders: serviceProviders,
+                        date: bookingDate,
+                        status: userRole === "customer" ? 'booked' : "completed",
+                        isOffline: userRole !== 'customer'
+                    }
+                ],
+                createOptions
+            );
+
+            return newBooking[0];
+        });
+
+        // ========== TRANSACTION COMMITTED ==========
+        // Fetch populated booking for response
+        const populatedBooking = await Booking.findById(booking._id)
+            .populate('serviceProviders.barber_id', 'name email phone profileUrl');
+        
+        res.status(201).json({
+            success: true,
+            message: "Booking created successfully bookingId-" + customerDetails?.customer_name,
+            data: populatedBooking
+        });
+
+    } catch (error) {
+        // Handle specific errors
+        if (error instanceof SlotConflictError) {
+            return next(error);
+        }
+        
+        if (error.hasErrorLabel && error.hasErrorLabel('TransientTransactionError')) {
+            return next(new TransactionError(
+                "Booking request timed out. Please try again.",
+                503,
+                true
+            ));
+        }
+
+        console.error("Booking creation error:", error);
+        return next(error);
+    }
 });
 
 export const createAndUpdateOfflineBooking = catchAsyncErrors(async (req, res, next) => {

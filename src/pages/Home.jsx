@@ -411,7 +411,7 @@ const Home = () => {
         {/* Team Section */}
         <div >
           <h2 className="text-xl font-semibold text-gray-800 mb-4 text-center">Our Team</h2>
-          <div className='flex flex-col gap-4 overflow-x-auto'>
+          <div className='flex flex-col md:flex-row md:flex-wrap gap-4'>
             {loading ? (
               // Show skeleton loading for team
               <>

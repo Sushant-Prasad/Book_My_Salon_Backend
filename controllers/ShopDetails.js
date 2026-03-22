@@ -257,3 +257,60 @@ export const getAllBarbers = catchAsyncErrors(async (req, res, next) => {
         }
     });
 });
+
+// Search shops by barber name or shop address
+export const searchShops = catchAsyncErrors(async (req, res, next) => {
+    const { query } = req.query;
+
+    if (!query || !query.trim()) {
+        return next(new ErrorHandler("Search query is required", 400));
+    }
+
+    // Escape regex characters to avoid unintended patterns
+    const escapedQuery = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    const shops = await ShopDetails.aggregate([
+        {
+            $lookup: {
+                from: "users",
+                localField: "barber_id",
+                foreignField: "_id",
+                as: "barber_id"
+            }
+        },
+        { $unwind: "$barber_id" },
+        {
+            $match: {
+                $or: [
+                    { shop_address: { $regex: escapedQuery, $options: "i" } },
+                    { "barber_id.name": { $regex: escapedQuery, $options: "i" } }
+                ]
+            }
+        },
+        {
+            $project: {
+                shop_name: 1,
+                shop_address: 1,
+                phone: 1,
+                opening_hours: 1,
+                services: 1,
+                today_open: 1,
+                "barber_id._id": 1,
+                "barber_id.name": 1,
+                "barber_id.email": 1,
+                "barber_id.phone": 1,
+                "barber_id.profileUrl": 1,
+                "barber_id.gender": 1
+            }
+        }
+    ]);
+
+    res.status(200).json({
+        success: true,
+        data: {
+            barbers: shops,
+            total: shops.length,
+            query: query.trim()
+        }
+    });
+});

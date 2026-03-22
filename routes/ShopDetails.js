@@ -7,7 +7,8 @@ import {
     addToSpamList,
     getSpamList,
     removeFromSpamList,
-    getAllBarbers
+    getAllBarbers,
+    searchShops
 } from "../controllers/ShopDetails.js";
 import protect from "../middleware/auth.js";
 import isAuthenticated from "../middleware/auth.js";
@@ -18,6 +19,9 @@ const router = express.Router();
 
 // Get all barbers (for customers)
 router.get("/all-barbers", getAllBarbers);
+
+// Search barbers by name or shop address (public)
+router.get("/search", searchShops);
 
 // Get shop details by barber ID (public)
 router.get("/details/:barberId", getShopDetails);
